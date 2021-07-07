@@ -1,8 +1,7 @@
 # Load_Path
-This repository contains the codes, result files, thesis report of my master thesis project titled "Load Path Visualization in Aero-engine Structures using U*".
+This repository contains the developed program scripts, thesis report of my master thesis project titled "Load Path Visualization in Aero-engine Structures using U*".
 
-
-
+The following table lists the purpose of the files in the repository.
 
 | SI NO | FILENEAME          | PURPOSE                                                              |
 | ----- | ------------------ | -------------------------------------------------------------------- |
