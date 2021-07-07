@@ -1,0 +1,290 @@
+
+/CLE
+*DEL,ALL
+! Analyses input starts here
+/NOPR   ! Suppress printing of UNDO process 
+FINISH  ! Make sure we are at BEGIN level   
+/PREP7 ! Enter the preprocessor
+
+
+file_name = 'filename' ! Change the filename
+NODES_PER_ELEMENT = 20
+DOF_PER_NODE = 3 ! 2 - 2D problem ; 3 - 3D problem
+!read in the file. the file should contain nodal entity setsl
+
+CDREAD,DB,filename,cdb
+EPLOT
+
+!--------------------- GET FREENODES & TOTALNODES ---------------------
+
+nsel,all
+nsel,u,,,fixnodes    
+nsel,u,,,loadnodes      
+CM,freenodes,node 
+
+nsel,all  
+cm,totalnodes,node
+
+!--------------------- COUNT THE NODES ---------------------
+NSEL,S,,,fixnodes
+*GET,fixnodes_count,NODE,0,COUNT
+NSEL,S,,,loadnodes
+*GET,loadnodes_count,NODE,0,COUNT
+NSEL,S,,,freenodes
+*GET,freenodes_count,NODE,0,COUNT
+NSEL,S,,,totalnodes 
+*GET,totalnodes_count,NODE,0,COUNT
+
+
+
+!--------------------- GET THE NODE NUMBERS ---------------------
+
+NSEL,S,,,loadnodes 			
+*VGET, loadnodes_no, NODE, 0, nlist
+NSEL,S,,,fixnodes 							
+*VGET, fixnodes_no, NODE, 0, nlist
+NSEL,S,,,freenodes
+*VGET, freenodes_no, NODE, 0, nlist
+
+ALLSEL
+NSEL,S,,,freenodes			! select freenodes
+*GET,min_node_no,NODE,0,NUM,MIN		! Get and assign the least node number of freenodes in the varable "min_node_no"
+ 
+*DIM,loaded_nodes_lc,ARRAY,2,freenodes_count
+
+!--------------- Apply original boundary conditions ----------------
+
+/PREP7  		! Enter the preprocessor
+ALLSEL
+D,fixnodes,ALL,ALL      ! All dofs of the fix nodes to zero (Change according to the problem)
+F,loadnodes,Fy,-10	! Apply force (Change according to the problem)
+
+!---------------------- Solve the problem ----------------------
+/SOLU			! Enter the solution
+SOLVE
+
+!---------------------- Calculate the strain Energy ----------------------
+/POST1
+SET,
+/POST26
+ENERSOL,2,SENE,,STRAINENERGY
+
+FILE,'%file_name%','rst','.'
+/UI,COLL,1  
+NUMVAR,200  
+SOLU,191,NCMIT  
+STORE,MERGE 
+FILLDATA,191,,,,1,1 
+REALVAR,191,191
+
+*GET,U_VALUE,VARI,2, REAL,1  ! Store the Strain energy value
+
+!---------------------- Calculate the load node displacement ----------------------
+
+*DIM, LOADNODE_DISP,ARRAY,DOF_PER_NODE,loadnodes_count  
+
+*IF,DOF_PER_NODE,EQ,2,THEN
+	*DO, I, 1,loadnodes_count
+    		*GET,LOADNODE_DISP(1,I),NODE,loadnodes_no(I),U,X
+    		*GET,LOADNODE_DISP(2,I),NODE,loadnodes_no(I),U,Y    		
+	*ENDDO
+*ELSEIF,DOF_PER_NODE,EQ,3,THEN
+	*DO, I, 1,loadnodes_count
+    		*GET,LOADNODE_DISP(1,I),NODE,loadnodes_no(I),U,X
+    		*GET,LOADNODE_DISP(2,I),NODE,loadnodes_no(I),U,Y
+    		*GET,LOADNODE_DISP(3,I),NODE,loadnodes_no(I),U,Z
+	*ENDDO
+*ENDIF
+
+
+!---------------------- Do the looping ----------------------
+
+/PREP7 ! Enter the processorer
+
+*DO,I,1,freenodes_count
+    DDELE,ALL
+	FDELE,ALL
+    ALLSEL
+	!Apply Normal boundary Condition
+    D,fixnodes,ALL,ALL                  ! All dofs of the fix nodes to zero    
+	*IF,DOF_PER_NODE,EQ,2,THEN
+		*DO,J,1,loadnodes_count	
+				D,loadnodes_no(J),UX,LOADNODE_DISP(1,J)! assigning enforced X-Displacement at the load nodes 
+				D,loadnodes_no(J),UY,LOADNODE_DISP(2,J)! assigning enforced Y-displacement at the load nodes 						 
+		*ENDDO
+	*ELSEIF,DOF_PER_NODE,EQ,3,THEN
+		*DO,J,1,loadnodes_count	
+				D,loadnodes_no(J),UX,LOADNODE_DISP(1,J)! assigning enforced X-Displacement at the load nodes 
+				D,loadnodes_no(J),UY,LOADNODE_DISP(2,J)! assigning enforced Y-displacement at the load nodes 
+				D,loadnodes_no(J),UZ,LOADNODE_DISP(3,J)! assigning enforced Z-displacement at the load nodes 		 
+		*ENDDO
+	*ENDIF
+    NSEL,S,,,freenodes  
+    loaded_nodes_lc(1,I)=min_node_no                   
+	min_node_no=NDNEXT(min_node_no)     ! min_node_no(i)= min_node_no(i+1)
+    D,loaded_nodes_lc(1,I),ALL,ALL
+    ALLSEL
+    LSWRITE,I				! Write loadstep
+    DDELE,ALL				! delete all constrained dofs
+*ENDDO
+DDELE,ALL
+
+
+
+!-------------------- SOLVE ALL THE SETS -------------------------
+*GET,TBEFORE,ACTIVE,,TIME,CPU
+/SOLU
+ALLSEL
+LSSOLVE,1,freenodes_count
+*GET,TAFTER,ACTIVE,,TIME,CPU
+SOLUTION_TIME = (TAFTER-TBEFORE) ! record the computational CPU time
+
+
+!-------------------- CALCULATE STRAIN ENERGY FOR ALL SET -----------------------
+
+/POST26
+! output needs to be redirected to get the list of energies over all load steps
+/OUTPUT,energy_list,txt
+ENERSOL,3,SENE,,U_PRIME
+!PRVAR,3
+/OUTPUT          ! send the output back again to usual file
+
+
+!---------------------- ASSIGN U* VALUES TO THE NODES ----------------------
+
+FILE,'%file_name%','rst','.'
+/UI,COLL,1  
+NUMVAR,200  
+SOLU,191,NCMIT  
+STORE,MERGE 
+FILLDATA,191,,,,1,1 
+REALVAR,191,191
+
+*DO,J,1,freenodes_count			! RECORDING U' PRIME VALUES FOR THE FREENODE
+   *GET,loaded_nodes_lc(2,J),VARI,3, REAL,J
+*ENDDO   
+
+*DIM,U_STAR,ARRAY,1,freenodes_count
+
+
+*DO,K,1,freenodes_count
+   U_STAR(1,K)= 1 - (U_VALUE/loaded_nodes_lc(2,K))  ! ORIGINAL RATIO
+*ENDDO   
+
+!---------------------- PLOTTING ----------------------
+
+/POST1
+SET,LAST
+/GRAPHICS,FULL
+
+*DO,I,1,freenodes_count
+DNSOL,freenodes_no(I),U,X,U_STAR(1,I)
+*ENDDO 
+
+*DO,I,1,loadnodes_count
+DNSOL,loadnodes_no(I),U,X,1
+*ENDDO
+
+*DO,I,1,fixnodes_count
+DNSOL,fixnodes_no(I),U,X,0
+*ENDDO
+RAPPND,freenodes_count+1,freenodes_count+1
+
+PLNSOL, U,X, 0,1.0
+
+!----------------------------- DATA PROCESSING --------------------
+
+
+ALLSEL
+*GET,ELEM_NO_MIN,ELEM,0,NUM,MIN
+*GET,ELEM_NO_MAX,ELEM,0,NUM,MAX
+*GET,ELEM_COUNT,ELEM,0,COUNT
+
+
+ALLSEL
+*GET,ELEM_NO_MIN,ELEM,0,NUM,MIN
+*GET,ELEM_NO_MAX,ELEM,0,NUM,MAX
+*GET,ELEM_COUNT,ELEM,0,COUNT
+	
+*DIM,ELEMENT_TABLE,ARRAY,ELEM_COUNT,1+NODES_PER_ELEMENT ! 20 NODES
+*DO,I,ELEM_NO_MIN,ELEM_NO_MAX
+	*SET,ELEMENT_TABLE(I,1),I
+	*DO,J,1,NODES_PER_ELEMENT 
+		*SET,ELEMENT_TABLE(I,J+1),NELEM(I,J)
+	*ENDDO
+*ENDDO
+
+
+*DIM,TABLE_RES,ARRAY,totalnodes_count,5
+*IF,DOF_PER_NODE,EQ,2,THEN
+	*DO,I,1,totalnodes_count
+		*SET,TABLE_RES(I,1),I			! Node Number
+		*GET,TABLE_RES(I,2),NODE,I,LOC,X	! X- coordinate
+		*GET,TABLE_RES(I,3),NODE,I,LOC,Y	! Y- coordinate
+		*SET,TABLE_RES(I,4),0			! Z- coordinate	
+	*ENDDO
+*ELSEIF,DOF_PER_NODE,EQ,3,THEN
+	*DO,I,1,totalnodes_count
+		*SET,TABLE_RES(I,1),I			! Node Number
+		*GET,TABLE_RES(I,2),NODE,I,LOC,X	! X- coordinate
+		*GET,TABLE_RES(I,3),NODE,I,LOC,Y	! Y- coordinate
+		*GET,TABLE_RES(I,4),NODE,I,LOC,Z	! Z- coordinate	
+	*ENDDO
+*ENDIF
+
+
+*DO,J,1,freenodes_count
+		*SET,TABLE_RES(freenodes_no(J),5),U_STAR(1,J)
+*ENDDO
+		
+*DO,J,1,loadnodes_count
+		*SET,TABLE_RES(loadnodes_no(J),5),1
+*ENDDO
+		
+*DO,J,1,fixnodes_count
+		*SET,TABLE_RES(fixnodes_no(J),5),0
+*ENDDO
+
+
+!-------------------- EXPORTING DATA ---------------------
+*cfopen,element_type.txt
+! list element types
+*GET,net,ETYP,1,NUM,COUNT
+*DO,i,1,net
+	*GET,ETname,ETYP,i,ATTR,ENAM
+*VWRITE,'ET ',i,' ',ETname
+(A3, F4.0, A1, F4.0)
+*ENDDO
+*cfclose
+
+*MWRITE,ELEMENT_TABLE,element_table,txt
+(F10.0,F10.0,F10.0,F10.0,F10.0,F10.0,F10.0,F10.0,F10.0,F10.0,F10.0,F10.0,F10.0,F10.0,F10.0,F10.0,F10.0,F10.0,F10.0,F10.0,F10.0)
+
+*MWRITE,TABLE_RES,result_table,txt
+(F10.0,F10.6,F10.6,F10.6,F10.6)
+!6 digit precision. if you want more precision, increase'x' in F10.x
+
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+! format output for nodes, elements and stress listings
+/PAGE, 1E9,, 1E9,,  ! disable headers
+/FORMAT, , ,14,5, , ! fix floating point format
+/HEADER, off, off, off, off, on, off ! disable summaries
+
+!/POST26
+!/OUTPUT,NLIST,txt
+!NLIST,,,,COORD		! print nodes w. coordinates
+!/OUTPUT
+
+!/OUTPUT,ELIST,txt
+!ELIST				! print element connectivity table
+!/OUTPUT
+
+
+!/POST1
+!/OUTPUT,DISP,txt
+!PRNSOL,U			! print all displacements
+!/OUTPUT
+
+

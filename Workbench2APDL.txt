@@ -1,0 +1,17 @@
+! The below commands should be used while importing the meshed geometry from the 
+! ANSYS Workbench
+
+numcmp,node
+numcmp,element
+eplot
+et,10,186 ! Create an new element with an entity number 10
+et,11,187
+esel,s,type,,1 ! select the existing element type 
+emodif,all,type,10 ! replace the existing element type with new element
+
+esel,s,type,,2
+emodif,all,type,10
+
+nsel,all
+nsel,u,,,loadnodes
+nsel,u,,,fixnodes
